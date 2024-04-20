@@ -13,10 +13,13 @@ struct proc proc[NPROC];
 struct proc *initproc;
 
 int nextpid = 1;
+
 struct spinlock pid_lock;
 
 extern void forkret(void);
 static void freeproc(struct proc *p);
+
+extern int syscallCount;
 
 extern char trampoline[]; // trampoline.S
 
@@ -680,4 +683,42 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+int
+sysinfo(int param)
+{
+  /*
+  static char *states[] = {
+  [SLEEPING]  "sleep ",
+  [RUNNABLE]  "runble",
+  [RUNNING]   "run   ",
+  [ZOMBIE]    "zombie"
+  };
+  */
+  struct proc *p;
+  if (param == 0) // total # of active processes
+  {
+    int num = 0;
+    for(p = proc; p < &proc[NPROC]; p++)
+    {
+      if (p->state == ZOMBIE ||
+          p->state == RUNNING ||
+          p->state == RUNNABLE ||
+          p->state == SLEEPING)
+          {
+            num++;
+          }
+    }
+    return num;
+  }
+  if (param == 1)
+  {
+    return syscallCount;
+  }
+  if (param == 2)
+  {
+    return kcount();
+  }
+  return -1;
 }
