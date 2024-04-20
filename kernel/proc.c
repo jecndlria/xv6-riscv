@@ -127,6 +127,7 @@ allocproc(void)
 found:
   p->pid = allocpid();
   p->state = USED;
+  p->syscallCount = 0;
 
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
@@ -721,4 +722,18 @@ sysinfo(int param)
     return kcount();
   }
   return -1;
+}
+
+int
+procinfo(struct pinfo *in)
+{
+  struct proc *p = myproc();
+  struct pinfo inf;
+
+  inf.ppid = p->parent->pid;
+  inf.page_usage = p->sz/PGSIZE;
+  inf.syscall_count = p->syscallCount;
+
+  if (in != 0 && copyout(p->pagetable, (uint64)&in, (char*)&inf, sizeof(struct pinfo)) < 0) return -1;
+  else return 0;
 }
