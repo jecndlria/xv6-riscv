@@ -734,6 +734,8 @@ procinfo(struct pinfo *in)
   inf.page_usage = p->sz/PGSIZE;
   inf.syscall_count = p->syscallCount;
 
-  if (in != 0 && copyout(p->pagetable, (uint64)&in, (char*)&inf, sizeof(struct pinfo)) < 0) return -1;
-  else return 0;
+  if (in == 0 || copyout(p->pagetable, (uint64)in, (char*)&inf, sizeof(inf)) != 0)
+    return -1;
+  else
+    return 0;
 }
