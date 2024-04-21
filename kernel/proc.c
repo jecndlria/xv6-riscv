@@ -713,11 +713,11 @@ sysinfo(int param)
     }
     return num;
   }
-  if (param == 1)
+  if (param == 1) // total # of syscalls 
   {
     return syscallCount;
   }
-  if (param == 2)
+  if (param == 2) // total # of free pages
   {
     return kcount();
   }
