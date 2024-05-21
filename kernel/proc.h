@@ -93,6 +93,8 @@ struct proc {
   int pid;                     // Process ID
   int tickets;                 // Process Tickets
   int ticks;                   // rough estimation of the number of ticks used by each process
+  int stride;
+  int pass;
 
   // wait_lock must be held when using this:
   struct proc *parent;         // Parent process

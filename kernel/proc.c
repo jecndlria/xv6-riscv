@@ -18,6 +18,18 @@ struct spinlock pid_lock;
 extern void forkret(void);
 static void freeproc(struct proc *p);
 
+// RNG for lottery
+unsigned short lfsr = 0xACE1u;
+unsigned short bit;
+unsigned short rand()
+{
+  bit = ((lfsr >> 0) ^ (lfsr >> 2) ^ (lfsr >> 3) ^ (lfsr >> 5)) & 1;
+  return lfsr = (lfsr >> 1) | (bit << 15);
+}
+
+// stride constant
+int K = 10000;
+
 extern char trampoline[]; // trampoline.S
 
 // helps ensure that wakeups of wait()ing
@@ -126,6 +138,8 @@ found:
   p->state = USED;
   p->tickets = 10000;
   p->ticks = 0;
+  p->stride = K / p->tickets;
+  p->pass = p->stride;
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
     freeproc(p);
@@ -445,9 +459,52 @@ wait(uint64 addr)
 void
 scheduler(void)
 {
+  #if defined(LOTTERY)
+  
+  // get total # of tickets
   struct proc *p;
   struct cpu *c = mycpu();
-  int currentTicks = ticks;
+  c->proc = 0;
+  for(;;)
+  {
+    intr_on();
+    int totalTickets = 0;
+    int findWinner = 0;
+    for(p = proc; p < &proc[NPROC]; p++)
+    {
+      acquire(&p->lock);
+      if (p->state == RUNNABLE)
+      {
+        totalTickets += p->tickets;
+      }
+      release(&p->lock);
+    }
+    int lotteryWinner = rand() % totalTickets;
+    for(p = proc; p < &proc[NPROC]; p++)
+    {
+      acquire(&p->lock);
+      if (p->state == RUNNABLE)
+      {
+        findWinner += p->tickets;
+        if (findWinner >= lotteryWinner)
+        {
+          p->state = RUNNING;
+          c->proc = p;
+          swtch(&c->context, &p->context);
+          c->proc = 0;
+          p->ticks++;
+          release(&p->lock);
+          break;
+        }
+      }
+      release(&p->lock);
+    }
+  }
+  #elif defined(STRIDE)
+
+  #else
+  struct proc *p;
+  struct cpu *c = mycpu();
   
   c->proc = 0;
   for(;;){
@@ -462,20 +519,17 @@ scheduler(void)
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
-        if (currentTicks != ticks)
-        {
-          p->ticks++;
-          currentTicks = ticks;
-        }
         swtch(&c->context, &p->context);
 
         // Process is done running for now.
         // It should have changed its p->state before coming back.
         c->proc = 0;
+        p->ticks++;
       }
       release(&p->lock);
     }
   }
+  #endif
 }
 
 // Switch to scheduler.  Must hold only p->lock
@@ -707,5 +761,7 @@ sched_tickets(int tix)
 {
   struct proc *p = myproc();
   p->tickets = tix;
+  p->stride = K / p->tickets;
+  p->pass = p->stride;
   return 0;
 }
