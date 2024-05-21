@@ -501,7 +501,37 @@ scheduler(void)
     }
   }
   #elif defined(STRIDE)
-
+  struct proc *p;
+  struct cpu *c = mycpu();
+  c->proc = 0;
+  for(;;)
+  {
+    intr_on();
+    int minPassSoFar = __INT_MAX__;
+    struct proc *minPassProcSoFar = 0;
+    for(p = proc; p < &proc[NPROC]; p++)
+    {
+      acquire(&p->lock);
+      if (p->state == RUNNABLE && p->pass < minPassSoFar)
+      {
+        minPassProcSoFar = p;
+        minPassSoFar = p->pass;
+      }
+      release(&p->lock);
+    }
+    if (minPassProcSoFar == 0) 
+    {
+      continue;
+    }
+    acquire(&minPassProcSoFar->lock);
+    minPassProcSoFar->state = RUNNING;
+    c->proc = minPassProcSoFar;
+    swtch(&c->context, &minPassProcSoFar->context);
+    c->proc = 0;
+    minPassProcSoFar->ticks++;
+    minPassProcSoFar->pass += minPassProcSoFar->stride;
+    release(&minPassProcSoFar->lock);
+  }
   #else
   struct proc *p;
   struct cpu *c = mycpu();
