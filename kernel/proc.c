@@ -479,7 +479,7 @@ scheduler(void)
       }
       release(&p->lock);
     }
-    int lotteryWinner = rand() % totalTickets;
+    int lotteryWinner = rand() + 1 % totalTickets;
     for(p = proc; p < &proc[NPROC]; p++)
     {
       acquire(&p->lock);
