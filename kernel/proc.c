@@ -24,7 +24,7 @@ unsigned short bit;
 unsigned short rand()
 {
   bit = ((lfsr >> 0) ^ (lfsr >> 2) ^ (lfsr >> 3) ^ (lfsr >> 5)) & 1;
-  return lfsr = (lfsr >> 1) | (bit << 15);
+  return lfsr = ((lfsr >> 1) | (bit << 15));
 }
 
 // stride constant
@@ -479,7 +479,7 @@ scheduler(void)
       }
       release(&p->lock);
     }
-    int lotteryWinner = rand() + 1 % totalTickets;
+    int lotteryWinner = rand() % totalTickets + 1;
     for(p = proc; p < &proc[NPROC]; p++)
     {
       acquire(&p->lock);
