@@ -101,12 +101,9 @@ extern uint64 sys_unlink(void);
 extern uint64 sys_link(void);
 extern uint64 sys_mkdir(void);
 extern uint64 sys_close(void);
-<<<<<<< HEAD
 extern uint64 sys_clone(void);
-=======
 extern uint64 sys_sched_statistics(void);
 extern uint64 sys_sched_tickets(void);
->>>>>>> lab2
 
 // An array mapping syscall numbers from syscall.h
 // to the function that handles the system call.
