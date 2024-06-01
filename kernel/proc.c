@@ -160,6 +160,7 @@ freeproc(struct proc *p)
   p->trapframe = 0;
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
+  p->thread_id = 0;
   p->pagetable = 0;
   p->sz = 0;
   p->pid = 0;
@@ -414,7 +415,22 @@ wait(uint64 addr)
             release(&wait_lock);
             return -1;
           }
-          freeproc(pp);
+          if (pp->thread_id == 0) freeproc(pp);
+          else
+          {
+            if(p->trapframe)
+              kfree((void*)p->trapframe);
+            p->trapframe = 0;
+            p->pagetable = 0;
+            p->sz = 0;
+            p->pid = 0;
+            p->parent = 0;
+            p->name[0] = 0;
+            p->chan = 0;
+            p->killed = 0;
+            p->xstate = 0;
+            p->state = UNUSED;
+          }
           release(&pp->lock);
           release(&wait_lock);
           return pid;
@@ -680,4 +696,104 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+struct proc*    
+allocproc_thread(void)
+{
+  struct proc *p;
+
+  for(p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if(p->state == UNUSED) {
+      goto found;
+    } else {
+      release(&p->lock);
+    }
+  }
+  return 0;
+
+found:
+  p->pid = allocpid();
+  p->state = USED;
+  p->thread_id = 0;
+
+  // Allocate a trapframe page.
+  if((p->trapframe = (struct trapframe *)kalloc()) == 0){
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
+
+  // Set up new context to start executing at forkret,
+  // which returns to user space.
+  memset(&p->context, 0, sizeof(p->context));
+  p->context.ra = (uint64)forkret;
+  p->context.sp = (uint64)p->kstack + PGSIZE;
+
+  return p;
+}
+
+
+int
+clone(void* stack)
+{
+  if (stack == 0)
+    return -1;
+
+  int pid;
+  struct proc *np;
+  struct proc *p = myproc();
+
+  // Allocate process.
+  if((np = allocproc_thread()) == 0){
+    return -1;
+  }
+  
+  np->sz = p->sz;
+  // Use the parent's address space
+  np->pagetable = p->pagetable;
+
+  // Copy parent's trapframe to child.
+  *np->trapframe = *p->trapframe;
+
+  // Set up new user stack for child thread.
+  np->trapframe->sp = (uint64)stack;
+
+  // Assign a unique thread ID
+  acquire(&wait_lock);
+  for (int i = 1; i < NPROC; i++) 
+  {
+    int newId = 0;
+    for (struct proc *pp = proc; pp < &proc[NPROC]; pp++) 
+    {
+      if (pp->state != UNUSED && pp->parent == p && pp->thread_id == i) 
+      {
+        newId++;
+      }
+    }
+      np->thread_id = newId + 1;
+  }
+  release(&wait_lock);
+
+  // Map the child's trapframe to user space.
+  uint64 trapframe_address = TRAPFRAME - (np->thread_id * PGSIZE);
+  if(mappages(np->pagetable, trapframe_address, PGSIZE, (uint64)(np->trapframe), PTE_R | PTE_W) < 0)
+  {
+    freeproc(np);
+    return -1;
+  }
+
+  // Copy the parent's process name.
+  safestrcpy(np->name, p->name, sizeof(p->name));
+
+  pid = np->pid;
+  np->parent = p;
+
+  // Place the process in the ready state.
+  acquire(&np->lock);
+  np->state = RUNNABLE;
+  release(&np->lock);
+
+  return pid;
 }

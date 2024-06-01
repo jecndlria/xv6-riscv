@@ -1,0 +1,13 @@
+#ifndef THREAD_H
+#define THREAD_H
+
+struct lock_t {
+  uint locked;  
+};
+
+int thread_create(void *(start_routine)(void*), void *arg);
+void lock_init(struct lock_t* lock);
+void lock_acquire(struct lock_t* lock);
+void lock_release(struct lock_t* lock);
+
+#endif // THREAD_H
