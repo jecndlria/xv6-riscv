@@ -97,6 +97,7 @@ sys_clone(void)
   argaddr(0, &stack);
   return clone((void*)stack);
 }
+uint64
 sys_sched_statistics(void)
 {
   return sched_statistics();
