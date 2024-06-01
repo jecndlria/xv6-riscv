@@ -37,3 +37,5 @@ entry("sbrk");
 entry("sleep");
 entry("uptime");
 entry("clone");
+entry("sched_statistics");
+entry("sched_tickets");

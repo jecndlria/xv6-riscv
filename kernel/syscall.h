@@ -21,3 +21,5 @@
 #define SYS_mkdir  20
 #define SYS_close  21
 #define SYS_clone  22
+#define SYS_sched_statistics 23
+#define SYS_sched_tickets 24

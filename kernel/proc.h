@@ -92,6 +92,10 @@ struct proc {
   int xstate;                  // Exit status to be returned to parent's wait
   int pid;                     // Process ID
   int thread_id;               // Thread ID
+  int tickets;                 // Process Tickets
+  int ticks;                   // rough estimation of the number of ticks used by each process
+  int stride;
+  int pass;
 
   // wait_lock must be held when using this:
   struct proc *parent;         // Parent process

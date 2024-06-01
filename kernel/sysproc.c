@@ -97,3 +97,15 @@ sys_clone(void)
   argaddr(0, &stack);
   return clone((void*)stack);
 }
+sys_sched_statistics(void)
+{
+  return sched_statistics();
+}
+
+uint64
+sys_sched_tickets(void)
+{
+  int tickets;
+  argint(0, &tickets);
+  return sched_tickets(tickets);
+}

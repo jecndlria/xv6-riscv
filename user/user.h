@@ -23,6 +23,8 @@ char* sbrk(int);
 int sleep(int);
 int uptime(void);
 int clone(void *stack);
+int sched_statistics(void);
+int sched_tickets(int);
 
 // ulib.c
 int stat(const char*, struct stat*);

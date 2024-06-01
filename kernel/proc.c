@@ -19,6 +19,18 @@ struct spinlock pid_lock;
 extern void forkret(void);
 static void freeproc(struct proc *p);
 
+// RNG for lottery
+unsigned short lfsr = 0xACE1u;
+unsigned short bit;
+unsigned short rand()
+{
+  bit = ((lfsr >> 0) ^ (lfsr >> 2) ^ (lfsr >> 3) ^ (lfsr >> 5)) & 1;
+  return lfsr = ((lfsr >> 1) | (bit << 15));
+}
+
+// stride constant
+int K = 10000;
+
 extern char trampoline[]; // trampoline.S
 
 // helps ensure that wakeups of wait()ing
@@ -139,7 +151,10 @@ allocproc(void)
 found:
   p->pid = allocpid();
   p->state = USED;
-
+  p->tickets = 10000;
+  p->ticks = 0;
+  p->stride = K / p->tickets;
+  p->pass = p->stride;
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
     freeproc(p);
@@ -470,6 +485,80 @@ wait(uint64 addr)
 void
 scheduler(void)
 {
+  #if defined(LOTTERY)
+  
+  // get total # of tickets
+  struct proc *p;
+  struct cpu *c = mycpu();
+  c->proc = 0;
+  for(;;)
+  {
+    intr_on();
+    int totalTickets = 0;
+    int findWinner = 0;
+    for(p = proc; p < &proc[NPROC]; p++)
+    {
+      acquire(&p->lock);
+      if (p->state == RUNNABLE)
+      {
+        totalTickets += p->tickets;
+      }
+      release(&p->lock);
+    }
+    int lotteryWinner = rand() % totalTickets + 1;
+    for(p = proc; p < &proc[NPROC]; p++)
+    {
+      acquire(&p->lock);
+      if (p->state == RUNNABLE)
+      {
+        findWinner += p->tickets;
+        if (findWinner >= lotteryWinner)
+        {
+          p->state = RUNNING;
+          c->proc = p;
+          swtch(&c->context, &p->context);
+          c->proc = 0;
+          p->ticks++;
+          release(&p->lock);
+          break;
+        }
+      }
+      release(&p->lock);
+    }
+  }
+  #elif defined(STRIDE)
+  struct proc *p;
+  struct cpu *c = mycpu();
+  c->proc = 0;
+  for(;;)
+  {
+    intr_on();
+    int minPassSoFar = __INT_MAX__;
+    struct proc *minPassProcSoFar = 0;
+    for(p = proc; p < &proc[NPROC]; p++)
+    {
+      acquire(&p->lock);
+      if (p->state == RUNNABLE && p->pass < minPassSoFar)
+      {
+        minPassProcSoFar = p;
+        minPassSoFar = p->pass;
+      }
+      release(&p->lock);
+    }
+    if (minPassProcSoFar == 0) 
+    {
+      continue;
+    }
+    acquire(&minPassProcSoFar->lock);
+    minPassProcSoFar->state = RUNNING;
+    c->proc = minPassProcSoFar;
+    swtch(&c->context, &minPassProcSoFar->context);
+    c->proc = 0;
+    minPassProcSoFar->ticks++;
+    minPassProcSoFar->pass += minPassProcSoFar->stride;
+    release(&minPassProcSoFar->lock);
+  }
+  #else
   struct proc *p;
   struct cpu *c = mycpu();
   
@@ -491,10 +580,12 @@ scheduler(void)
         // Process is done running for now.
         // It should have changed its p->state before coming back.
         c->proc = 0;
+        p->ticks++;
       }
       release(&p->lock);
     }
   }
+  #endif
 }
 
 // Switch to scheduler.  Must hold only p->lock
@@ -794,4 +885,26 @@ clone(void* stack)
   release(&np->lock);
 
   return thread_id;
+}
+int
+sched_statistics(void)
+{
+  struct proc *p;
+  for(p = proc; p < &proc[NPROC]; p++)
+  {
+    acquire(&p->lock);
+    if (p->state != UNUSED && p->state != ZOMBIE) printf("%d(%s): tickets: %d, ticks: %d\n", p->pid, p->name, p->tickets, p->ticks);
+    release(&p->lock);
+  }
+  return 0;
+}
+
+int
+sched_tickets(int tix)
+{
+  struct proc *p = myproc();
+  p->tickets = tix;
+  p->stride = K / p->tickets;
+  p->pass = p->stride;
+  return 0;
 }
