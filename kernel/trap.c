@@ -122,13 +122,13 @@ usertrapret(void)
   // tell trampoline.S the user page table to switch to.
   uint64 satp = MAKE_SATP(p->pagetable);
 
-  uint64 trapframe_address = TRAPFRAME - (p->thread_id * PGSIZE);
+  //uint64 trapframe_address = TRAPFRAME - (p->thread_id * PGSIZE);
 
   // jump to userret in trampoline.S at the top of memory, which 
   // switches to the user page table, restores user registers,
   // and switches to user mode with sret.
   uint64 trampoline_userret = TRAMPOLINE + (userret - trampoline);
-  ((void (*)(uint64,uint64))trampoline_userret)(trapframe_address, satp);
+  ((void (*)(uint64,uint64))trampoline_userret)(TRAPFRAME - (PGSIZE * p->thread_id), satp);
 }
 
 

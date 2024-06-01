@@ -20,11 +20,6 @@ void lock_release(struct lock_t *lock) {
   __sync_lock_release(&lock->locked);
 }
 
-void thread_start(void *(start_routine)(void*), void *arg) {
-  start_routine(arg);
-  exit(0); // Thread exits when the start routine finishes
-}
-
 int thread_create(void *(start_routine)(void*), void *arg) {
   void *stack = malloc(PGSIZE);
   if (stack == 0) {
@@ -36,7 +31,8 @@ int thread_create(void *(start_routine)(void*), void *arg) {
     free(stack);
     return -1;
   } else if (pid == 0) { // Child
-    thread_start(start_routine, arg);
+    start_routine(arg);
+    exit(0);
   } else { // Parent
     return pid;
   }
