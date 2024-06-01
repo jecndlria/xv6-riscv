@@ -404,21 +404,27 @@ wait(uint64 addr)
       if(pp->parent == p){
         // make sure the child isn't still in exit() or swtch().
         acquire(&pp->lock);
-
+        
         havekids = 1;
-        if(pp->state == ZOMBIE){
+        if(pp->state == ZOMBIE)
+        {
           // Found one.
           pid = pp->pid;
           if(addr != 0 && copyout(p->pagetable, addr, (char *)&pp->xstate,
                                   sizeof(pp->xstate)) < 0) {
+            printf("wait: copyout failed\n");
             release(&pp->lock);
             release(&wait_lock);
             return -1;
           }
-          if (pp->thread_id == 0) freeproc(pp);
+          if (pp->thread_id == 0) 
+          {
+            printf("wait: terminating parent with pid %d\n", pp-pid);
+            freeproc(pp);
+          }
           else
           {
-            printf("wait: terminating thread\n");
+            printf("wait: terminating thread with pid %d, t_id %d\n", pid, pp->thread_id);
             if(pp->trapframe)
               kfree((void*)p->trapframe);
             pp->trapframe = 0;
@@ -445,7 +451,6 @@ wait(uint64 addr)
       release(&wait_lock);
       return -1;
     }
-    
     // Wait for a child to exit.
     sleep(p, &wait_lock);  //DOC: wait-sleep
   }
@@ -739,7 +744,6 @@ found:
 int
 clone(void* stack)
 {
-  
   if (stack == 0 || (uint64)stack % PGSIZE != 0)
   {
     return -1;
@@ -777,6 +781,8 @@ clone(void* stack)
 
   // Map the child's trapframe to user space.
   uint64 trapframe_address = TRAPFRAME - (np->thread_id * PGSIZE);
+  printf("clone: Mapping trapframe at address 0x%p for thread_id %d\n", trapframe_address, np->thread_id);
+
   if(mappages(np->pagetable, trapframe_address, PGSIZE, (uint64)(np->trapframe), PTE_R | PTE_W) < 0)
   {
     kfree(np->trapframe);
@@ -799,7 +805,7 @@ clone(void* stack)
   acquire(&np->lock);
   np->state = RUNNABLE;
   release(&np->lock);
-  printf("clone: thread created successfully, pid = %d\n", pid);
+  printf("clone: thread created successfully, pid = %d, t_id = %d\n", pid, np->thread_id);
 
   return pid;
 }

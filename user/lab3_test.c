@@ -42,7 +42,9 @@ int main(int argc, char *argv[])
     }
     for (int i = 0; i < n_threads; i++)
     {
+        printf("HI!\n");
         wait(0);
+        printf("HEY!\n");
     }
     printf("Frisbee simulation has finished, %d rounds played in total\n", n_passes);
     exit(0);
