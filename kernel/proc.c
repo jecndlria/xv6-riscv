@@ -13,6 +13,7 @@ struct proc proc[NPROC];
 struct proc *initproc;
 
 int nextpid = 1;
+int nextthreadid = 1;
 struct spinlock pid_lock;
 
 extern void forkret(void);
@@ -102,6 +103,20 @@ allocpid()
   return pid;
 }
 
+struct spinlock tid_lock;
+int
+allocthreadid()
+{
+  int threadid;
+  
+  acquire(&tid_lock);
+  threadid = nextthreadid;
+  nextthreadid = nextthreadid + 1;
+  release(&tid_lock);
+
+  return threadid;
+}
+
 // Look in the process table for an UNUSED proc.
 // If found, initialize state required to run in the kernel,
 // and return with p->lock held.
@@ -159,7 +174,13 @@ freeproc(struct proc *p)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
   if(p->pagetable)
-    proc_freepagetable(p->pagetable, p->sz);
+  {
+    if (p->thread_id != 0) // free only the thread
+    {
+      uvmunmap(p->pagetable, TRAPFRAME - PGSIZE * p->thread_id, 1, 0);
+    }
+    else proc_freepagetable(p->pagetable, p->sz);
+  }
   p->thread_id = 0;
   p->pagetable = 0;
   p->sz = 0;
@@ -353,12 +374,16 @@ exit(int status)
     panic("init exiting");
 
   // Close all open files.
-  for(int fd = 0; fd < NOFILE; fd++){
+  if (p->thread_id == 0)
+  {
+    for(int fd = 0; fd < NOFILE; fd++){
     if(p->ofile[fd]){
       struct file *f = p->ofile[fd];
       fileclose(f);
       p->ofile[fd] = 0;
     }
+  }
+
   }
 
   begin_op();
@@ -412,32 +437,11 @@ wait(uint64 addr)
           pid = pp->pid;
           if(addr != 0 && copyout(p->pagetable, addr, (char *)&pp->xstate,
                                   sizeof(pp->xstate)) < 0) {
-            printf("wait: copyout failed\n");
             release(&pp->lock);
             release(&wait_lock);
             return -1;
           }
-          if (pp->thread_id == 0) 
-          {
-            printf("wait: terminating parent with pid %d\n", pp-pid);
-            freeproc(pp);
-          }
-          else
-          {
-            printf("wait: terminating thread with pid %d, t_id %d\n", pid, pp->thread_id);
-            if(pp->trapframe)
-              kfree((void*)p->trapframe);
-            pp->trapframe = 0;
-            pp->pagetable = 0;
-            pp->sz = 0;
-            pp->pid = 0;
-            pp->parent = 0;
-            pp->name[0] = 0;
-            pp->chan = 0;
-            pp->killed = 0;
-            pp->xstate = 0;
-            pp->state = UNUSED;
-          }
+          freeproc(pp);
           release(&pp->lock);
           release(&wait_lock);
           return pid;
@@ -721,8 +725,8 @@ allocproc_thread(void)
 
 found:
   p->pid = allocpid();
+  p->thread_id = allocthreadid();
   p->state = USED;
-  p->thread_id = 0;
 
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
@@ -736,7 +740,6 @@ found:
   memset(&p->context, 0, sizeof(p->context));
   p->context.ra = (uint64)forkret;
   p->context.sp = (uint64)p->kstack + PGSIZE;
-  printf("allocproc_thread: new alloc\n");
   return p;
 }
 
@@ -744,57 +747,41 @@ found:
 int
 clone(void* stack)
 {
-  if (stack == 0 || (uint64)stack % PGSIZE != 0)
+  if (stack == 0)
   {
     return -1;
   }
-  int pid;
+  int thread_id;
   struct proc *np;
   struct proc *p = myproc();
 
   // Allocate process.
   if((np = allocproc_thread()) == 0){
-    printf("clone: allocproc_thread failed\n");
     return -1;
   }
 
-  acquire(&wait_lock);
-  static int thread_id = 1;
-  np->thread_id = thread_id++;
-  release(&wait_lock);
-  printf("clone: init\n");
-  // Copy user memory from parent to child.
-  // if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0){
-  //   freeproc(np);
-  //   release(&np->lock);
-  //   return -1;
-  // }
   np->pagetable = p->pagetable;
-  np->sz = p->sz;
+  //printf("threadid: %d\n",np->thread_id);
 
-  // copy saved user registers.
-  *(np->trapframe) = *(p->trapframe);
-  np->trapframe->sp = (uint64)stack;
-
-  // Cause fork to return 0 in the child.
-  np->trapframe->a0 = 0;
-
-  // Map the child's trapframe to user space.
-  uint64 trapframe_address = TRAPFRAME - (np->thread_id * PGSIZE);
-  printf("clone: Mapping trapframe at address 0x%p for thread_id %d\n", trapframe_address, np->thread_id);
-
-  if(mappages(np->pagetable, trapframe_address, PGSIZE, (uint64)(np->trapframe), PTE_R | PTE_W) < 0)
+  if(mappages(np->pagetable, TRAPFRAME - PGSIZE * np->thread_id, PGSIZE, (uint64)(np->trapframe), PTE_R | PTE_W) < 0)
   {
     kfree(np->trapframe);
     np->state = UNUSED;
+    uvmunmap(np->pagetable, TRAMPOLINE, 1, 0);
+    uvmfree(np->pagetable, 0);
     release(&np->lock);
-    printf("clone: mappages failed\n");
     return -1;
   }
 
+  np->sz = p->sz;
+  *(np->trapframe) = *(p->trapframe);
+  np->trapframe->a0 = 0;
+  np->trapframe->sp = (uint64)(stack + PGSIZE);
+
+
   safestrcpy(np->name, p->name, sizeof(p->name));
 
-  pid = np->pid;
+  thread_id = np->thread_id;
 
   release(&np->lock);
 
@@ -805,7 +792,6 @@ clone(void* stack)
   acquire(&np->lock);
   np->state = RUNNABLE;
   release(&np->lock);
-  printf("clone: thread created successfully, pid = %d, t_id = %d\n", pid, np->thread_id);
 
-  return pid;
+  return thread_id;
 }
