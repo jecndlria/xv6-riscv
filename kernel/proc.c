@@ -153,6 +153,7 @@ found:
   p->state = USED;
   p->tickets = 10000;
   p->ticks = 0;
+  p->thread_id = 0;
   p->stride = K / p->tickets;
   p->pass = p->stride;
   // Allocate a trapframe page.
@@ -194,7 +195,10 @@ freeproc(struct proc *p)
     {
       uvmunmap(p->pagetable, TRAPFRAME - PGSIZE * p->thread_id, 1, 0);
     }
-    else proc_freepagetable(p->pagetable, p->sz);
+    else if (p->thread_id == 0)
+    {
+      proc_freepagetable(p->pagetable, p->sz);
+    }
   }
   p->thread_id = 0;
   p->pagetable = 0;
@@ -415,7 +419,6 @@ exit(int status)
   wakeup(p->parent);
   
   acquire(&p->lock);
-
   p->xstate = status;
   p->state = ZOMBIE;
 
@@ -464,9 +467,10 @@ wait(uint64 addr)
         release(&pp->lock);
       }
     }
-
+    
     // No point waiting if we don't have any children.
     if(!havekids || killed(p)){
+      
       release(&wait_lock);
       return -1;
     }
@@ -834,7 +838,6 @@ found:
   return p;
 }
 
-
 int
 clone(void* stack)
 {
@@ -842,19 +845,20 @@ clone(void* stack)
   {
     return -1;
   }
-  int thread_id;
+  
+  int thread_id, i;
   struct proc *np;
   struct proc *p = myproc();
 
   // Allocate process.
-  if((np = allocproc_thread()) == 0){
+  if((np = allocproc_thread()) == 0)
+  {
     return -1;
   }
 
   np->pagetable = p->pagetable;
-  //printf("threadid: %d\n",np->thread_id);
-
-  if(mappages(np->pagetable, TRAPFRAME - PGSIZE * np->thread_id, PGSIZE, (uint64)(np->trapframe), PTE_R | PTE_W) < 0)
+  
+  if(mappages(np->pagetable, TRAPFRAME - (PGSIZE * np->thread_id), PGSIZE, (uint64)(np->trapframe), PTE_R | PTE_W) < 0)
   {
     kfree(np->trapframe);
     np->state = UNUSED;
@@ -863,29 +867,29 @@ clone(void* stack)
     release(&np->lock);
     return -1;
   }
-
   np->sz = p->sz;
   *(np->trapframe) = *(p->trapframe);
   np->trapframe->a0 = 0;
   np->trapframe->sp = (uint64)(stack + PGSIZE);
 
+  // increment reference counts on open file descriptors.
+  for(i = 0; i < NOFILE; i++)
+    if(p->ofile[i])
+      np->ofile[i] = filedup(p->ofile[i]);
+  np->cwd = idup(p->cwd);
 
   safestrcpy(np->name, p->name, sizeof(p->name));
-
-  thread_id = np->thread_id;
-
-  release(&np->lock);
+  thread_id = np->pid;
 
   acquire(&wait_lock);
   np->parent = p;
   release(&wait_lock);
 
-  acquire(&np->lock);
   np->state = RUNNABLE;
   release(&np->lock);
-
   return thread_id;
 }
+
 int
 sched_statistics(void)
 {
